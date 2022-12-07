@@ -42,12 +42,12 @@ fn parse(input: &str) -> Vec<(Vec<String>, usize)> {
     files
 }
 
-fn dir_sizes(files: &[(Vec<String>, usize)]) -> HashMap<String, usize> {
+fn dir_sizes(files: &[(Vec<String>, usize)]) -> HashMap<&[String], usize> {
     let mut sizes = HashMap::new();
 
     for (path, size) in files {
         for dir in 0..path.len() - 1 {
-            let dir = path[0..dir + 1].join("/");
+            let dir = &path[0..dir + 1];
             if let Some(entry) = sizes.get_mut(&dir) {
                 *entry += size;
             } else {
