@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::mem;
 
 fn parse(input: &str) -> Vec<[i64; 4]> {
@@ -92,31 +93,32 @@ fn part1(ranges: &[[i64; 4]], y: i64) -> i64 {
 }
 
 fn part2(ranges: &[[i64; 4]], y_max: i64) -> i64 {
-    let mut x_ranges = vec![];
-    for y in 0..=y_max {
-        for &[sensor_x, sensor_y, beacon_x, beacon_y] in ranges {
-            let range_dist =
-                manhattan_distance(sensor_x, sensor_y, beacon_x, beacon_y);
-            let y_dist = sensor_y.abs_diff(y) as i64;
-            if range_dist >= y_dist {
-                let x_pos1 = sensor_x - (range_dist - y_dist);
-                let x_pos2 = sensor_x + (range_dist - y_dist);
+    (0..=y_max)
+        .into_par_iter()
+        .find_map_first(|y| {
+            let mut x_ranges = vec![];
+            for &[sensor_x, sensor_y, beacon_x, beacon_y] in ranges {
+                let range_dist =
+                    manhattan_distance(sensor_x, sensor_y, beacon_x, beacon_y);
+                let y_dist = sensor_y.abs_diff(y) as i64;
+                if range_dist >= y_dist {
+                    let x_pos1 = sensor_x - (range_dist - y_dist);
+                    let x_pos2 = sensor_x + (range_dist - y_dist);
 
-                x_ranges.push((x_pos1, x_pos2));
+                    x_ranges.push((x_pos1, x_pos2));
+                }
             }
-        }
 
-        let intervals = simplify_intervals(&mut x_ranges);
+            let intervals = simplify_intervals(&mut x_ranges);
 
-        // find the gap
-        if intervals.len() == 2 {
-            return (intervals[0].1 + 1) * 4_000_000 + y;
-        }
-
-        x_ranges.clear();
-    }
-
-    0
+            // find the gap
+            if intervals.len() == 2 {
+                Some((intervals[0].1 + 1) * 4_000_000 + y)
+            } else {
+                None
+            }
+        })
+        .unwrap()
 }
 
 fn main() {
