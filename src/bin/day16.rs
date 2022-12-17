@@ -4,16 +4,62 @@ use ahash::{AHashMap, AHashSet};
 
 #[derive(Debug, PartialEq, Clone)]
 struct Node {
+    id: usize,
     name: String,
     flow: i64,
     open: Cell<bool>,
     adjacent: Vec<String>,
+    adjacent_id: Vec<usize>,
 }
 
-fn parse(input: &str) -> AHashMap<String, Node> {
-    let mut nodes = AHashMap::new();
+struct NodeCache {
+    data: Vec<i64>,
+}
 
-    for line in input.lines() {
+impl NodeCache {
+    fn new() -> Self {
+        NodeCache { data: vec![] }
+    }
+
+    fn idx(from: usize, to: usize) -> usize {
+        assert!(from < 64);
+        assert!(to < 64);
+
+        if from < to {
+            ((from & 0x3F) << 6) | (to & 0x3F)
+        } else {
+            ((to & 0x3F) << 6) | (from & 0x3F)
+        }
+    }
+
+    fn insert(&mut self, from: usize, to: usize, value: i64) {
+        let idx = Self::idx(from, to);
+        if idx >= self.data.len() {
+            self.data.resize(idx + 1, -1);
+        }
+        self.data[idx] = value;
+    }
+
+    fn lookup(&self, from: usize, to: usize) -> Option<i64> {
+        let idx = Self::idx(from, to);
+        if idx >= self.data.len() {
+            None
+        } else {
+            let value = self.data[idx];
+            if value == -1 {
+                None
+            } else {
+                Some(value)
+            }
+        }
+    }
+}
+
+fn parse(input: &str) -> AHashMap<usize, Node> {
+    let mut nodes = AHashMap::new();
+    let mut adj = AHashMap::new();
+
+    for (id, line) in input.lines().enumerate() {
         let mut words = line.split_ascii_whitespace();
         words.next();
         let name = words.next().unwrap().to_owned();
@@ -33,28 +79,38 @@ fn parse(input: &str) -> AHashMap<String, Node> {
         let adjacent: Vec<_> =
             words.map(|w| w.trim_end_matches(',').to_owned()).collect();
 
+        adj.insert(name.clone(), id);
+
         nodes.insert(
-            name.clone(),
+            id,
             Node {
+                id,
                 name,
                 flow,
                 open: Cell::new(false),
                 adjacent,
+                adjacent_id: vec![],
             },
         );
+    }
+
+    for node in nodes.values_mut() {
+        for adj_name in &node.adjacent {
+            node.adjacent_id.push(*adj.get(adj_name).unwrap());
+        }
     }
 
     nodes
 }
 
 fn optimize(
-    nodes: AHashMap<String, Node>,
-    cache: &mut AHashMap<(String, String), i64>,
-) -> AHashMap<String, Node> {
+    nodes: AHashMap<usize, Node>,
+    cache: &mut NodeCache,
+) -> AHashMap<usize, Node> {
     // warm the cache 🔥
     for (from, _) in &nodes {
         for (to, _) in &nodes {
-            dist_valve(from, to, &nodes, cache);
+            dist_valve(*from, *to, &nodes, cache);
         }
     }
 
@@ -71,50 +127,47 @@ fn optimize(
 }
 
 fn dist_valve(
-    current_node: &str,
-    dest: &str,
-    nodes: &AHashMap<String, Node>,
-    cache: &mut AHashMap<(String, String), i64>,
+    current_node: usize,
+    dest: usize,
+    nodes: &AHashMap<usize, Node>,
+    cache: &mut NodeCache,
 ) -> i64 {
-    if let Some(&dist) =
-        cache.get(&(current_node.to_string(), dest.to_string()))
-    {
+    if let Some(dist) = cache.lookup(current_node, dest) {
         return dist;
     }
 
     let mut expanded = AHashSet::new();
-    let mut unexpanded = VecDeque::<(&str, i64)>::from([(current_node, 0)]);
+    let mut unexpanded = VecDeque::<(usize, i64)>::from([(current_node, 0)]);
     let total_dist;
 
     loop {
-        let (node_name, dist) = unexpanded.pop_back().unwrap();
-        if node_name == dest {
+        let (node_id, dist) = unexpanded.pop_back().unwrap();
+        if node_id == dest {
             total_dist = dist;
             break;
         }
-        if expanded.contains(node_name) {
+        if expanded.contains(&node_id) {
             continue;
         }
 
-        if let Some(node) = nodes.get(node_name) {
-            for adj in &node.adjacent {
-                unexpanded.push_front((adj, dist + 1));
+        if let Some(node) = nodes.get(&node_id) {
+            for adj in &node.adjacent_id {
+                unexpanded.push_front((*adj, dist + 1));
             }
 
-            expanded.insert(node.name.as_str());
+            expanded.insert(node.id);
         }
     }
 
-    // println!("{} -> {}: {}", current_node.name, dest.name, total_dist);
-    cache.insert((current_node.to_string(), dest.to_string()), total_dist);
+    cache.insert(current_node, dest, total_dist);
     total_dist
 }
 
 fn part1_solve(
     start: &Node,
     minute: i64,
-    nodes: &AHashMap<String, Node>,
-    cache: &mut AHashMap<(String, String), i64>,
+    nodes: &AHashMap<usize, Node>,
+    cache: &mut NodeCache,
 ) -> i64 {
     let mut pressure = 0;
 
@@ -127,7 +180,7 @@ fn part1_solve(
             continue;
         }
 
-        let dist = dist_valve(&start.name, &node.name, nodes, cache);
+        let dist = dist_valve(start.id, node.id, nodes, cache);
         node.open.set(true);
         pressure = i64::max(
             pressure,
@@ -140,9 +193,10 @@ fn part1_solve(
     pressure
 }
 
-fn part1(nodes: &AHashMap<String, Node>) -> i64 {
-    let start_node = nodes.get("AA").unwrap();
-    let mut dist_cache = AHashMap::default();
+fn part1(nodes: &AHashMap<usize, Node>) -> i64 {
+    let (id, _) = nodes.iter().find(|(_, node)| node.name == "AA").unwrap();
+    let start_node = nodes.get(id).unwrap();
+    let mut dist_cache = NodeCache::new();
     part1_solve(start_node, 0, nodes, &mut dist_cache)
 }
 
@@ -151,8 +205,8 @@ fn part2_solve(
     start2: &Node,
     minute1: i64,
     minute2: i64,
-    nodes: &AHashMap<String, Node>,
-    cache: &mut AHashMap<(String, String), i64>,
+    nodes: &AHashMap<usize, Node>,
+    cache: &mut NodeCache,
 ) -> i64 {
     let mut pressure = 0;
 
@@ -166,13 +220,13 @@ fn part2_solve(
                 || n2.flow == 0
                 || n1.open.get()
                 || n2.open.get()
-                || n1.name == n2.name
+                || n1.id == n2.id
             {
                 continue;
             }
 
-            let dist1 = dist_valve(&start1.name, &n1.name, nodes, cache);
-            let dist2 = dist_valve(&start2.name, &n2.name, nodes, cache);
+            let dist1 = dist_valve(start1.id, n1.id, nodes, cache);
+            let dist2 = dist_valve(start2.id, n2.id, nodes, cache);
 
             n1.open.set(true);
             n2.open.set(true);
@@ -198,9 +252,10 @@ fn part2_solve(
     pressure
 }
 
-fn part2(nodes: &AHashMap<String, Node>) -> i64 {
-    let start_node = nodes.get("AA").unwrap();
-    let mut dist_cache = AHashMap::default();
+fn part2(nodes: &AHashMap<usize, Node>) -> i64 {
+    let (id, _) = nodes.iter().find(|(_, node)| node.name == "AA").unwrap();
+    let start_node = nodes.get(id).unwrap();
+    let mut dist_cache = NodeCache::new();
 
     let nodes = optimize(nodes.clone(), &mut dist_cache);
     part2_solve(start_node, start_node, 0, 0, &nodes, &mut dist_cache)
