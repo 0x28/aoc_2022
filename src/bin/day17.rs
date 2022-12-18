@@ -1,3 +1,5 @@
+use ahash::AHashMap;
+
 enum Dir {
     Left,
     Right,
@@ -143,16 +145,18 @@ impl Chamber {
     }
 }
 
-fn part1(dirs: &[Dir]) -> usize {
+fn solve(dirs: &[Dir], limit: usize) -> usize {
     let mut chamber = Chamber {
         field: vec![['.'; 7]; 4],
     };
     let possible_rocks = make_rocks();
-    let mut dirs = dirs.iter().cycle();
+    let mut dirs = dirs.iter().enumerate().cycle();
     let mut count = 0;
     let mut max_height = 0;
+    let mut flat_surfaces = AHashMap::default();
+    let mut skipped_height = 0;
 
-    for rock in possible_rocks.iter().cycle() {
+    for (rock_id, rock) in possible_rocks.iter().enumerate().cycle() {
         chamber
             .field
             .resize(max_height + rock.height() + 3, ['.'; 7]);
@@ -161,7 +165,7 @@ fn part1(dirs: &[Dir]) -> usize {
         rock.position.0 = 2;
         rock.position.1 = chamber.field.len() - 1;
 
-        for wind in dirs.by_ref() {
+        for (wind_id, wind) in dirs.by_ref() {
             // chamber.show(&rock);
 
             match wind {
@@ -171,6 +175,29 @@ fn part1(dirs: &[Dir]) -> usize {
 
             if rock.down(&chamber) {
                 max_height = usize::max(rock.place(&mut chamber), max_height);
+
+                for (idx, layer) in chamber.field.iter().enumerate() {
+                    if idx == max_height - 1
+                        && skipped_height == 0
+                        && layer.iter().all(|c| *c == '#')
+                    {
+                        let key = (rock_id, wind_id);
+                        if let Some((old_count, old_height)) =
+                            flat_surfaces.get(&key)
+                        {
+                            let cycle_length = count - old_count;
+                            let height_diff = max_height - old_height;
+                            let remaining_cycles =
+                                (limit - count) / cycle_length;
+
+                            count += remaining_cycles * cycle_length;
+                            skipped_height = remaining_cycles * height_diff;
+                        } else {
+                            flat_surfaces.insert(key, (count, max_height));
+                        }
+                    }
+                }
+
                 break;
             }
 
@@ -178,19 +205,19 @@ fn part1(dirs: &[Dir]) -> usize {
         }
 
         count += 1;
-        if count >= 2022 {
+        if count >= limit {
             break;
         }
     }
 
-    max_height
+    skipped_height + max_height
 }
 
 fn main() {
     let input = include_str!("../../input/input17.txt");
     let input = parse(input);
-    println!("part1 = {}", part1(&input));
-    // println!("part2 = {}", part2(&input));
+    println!("part1 = {}", solve(&input, 2022));
+    println!("part2 = {}", solve(&input, 1000000000000));
 }
 
 #[test]
@@ -198,6 +225,5 @@ fn test_day17() {
     let input = ">>><<><>><<<>><>>><<<>>><<<><<<>><>><<>>";
     let input = parse(input);
 
-    assert_eq!(part1(&input), 3068);
-    // assert_eq!(part2(&input), 0);
+    assert_eq!(solve(&input, 2022), 3068);
 }
